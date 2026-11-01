@@ -87,7 +87,7 @@ h1 svg{width:44px;height:44px}
 .rules h2{font:800 1.05rem var(--display);color:var(--ink);margin:0 0 6px}
 .rules ul{margin:0;padding-left:18px;display:grid;gap:3px}
 .rules strong{color:var(--ink)}
-.theme{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;width:36px;height:36px;cursor:pointer;font-size:1rem}
+.theme{flex-shrink:0;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;width:36px;height:36px;cursor:pointer;font-size:1rem}
 .toolbar{display:flex;gap:8px;align-items:center}
 .win{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--bg) 78%,transparent);border-radius:14px;backdrop-filter:blur(2px)}
 .win .card{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:20px 24px;text-align:center;display:grid;gap:6px;max-width:85%}
@@ -96,7 +96,8 @@ h1 svg{width:44px;height:44px}
 .win button{margin-top:8px;font:700 1rem var(--body);background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;cursor:pointer}
 .zz{font:800 .9em var(--display);fill:var(--muted)}
 @media (prefers-reduced-motion:reduce){.cell *,.cell::before,.cell::after,.cell.hint,.board.shake,#count.bump{animation:none!important}}
-@media (max-width:420px){h1{font-size:1.7rem}.levels button{padding:6px 9px}}
+@media (max-width:480px){.levels button{padding:6px 8px;font-size:.8rem}}
+@media (max-width:420px){h1{font-size:1.7rem}}
 </style>
 </head>
 <body>
@@ -106,9 +107,11 @@ h1 svg{width:44px;height:44px}
     <h1><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#cat"/></svg>Cat Nap</h1>
     <div class="toolbar">
       <div class="levels" role="group" aria-label="Difficulty">
-        <button id="lv-6" data-n="6">Easy</button>
-        <button id="lv-8" data-n="8">Medium</button>
-        <button id="lv-9" data-n="9">Hard</button>
+        <button data-level="kitten">Kitten</button>
+        <button data-level="easy">Easy</button>
+        <button data-level="medium">Medium</button>
+        <button data-level="hard">Hard</button>
+        <button data-level="expert">Expert</button>
       </div>
       <button class="theme" id="theme" aria-label="Switch light or dark theme">◐</button>
     </div>
@@ -148,6 +151,7 @@ h1 svg{width:44px;height:44px}
       <li><strong>Hold</strong> a cell to put a cat there. Each cat dots the cells it blocks.</li>
       <li><strong>Tap</strong> a cell to dot it (no cat here), or to clear it. Drag across cells to dot many at once.</li>
       <li>Every puzzle has exactly one solution, so you never need to guess.</li>
+      <li>Each level is bigger and needs harder logic. <strong>Kitten</strong> needs only the last free cell of a row, column or room. <strong>Easy</strong> adds cells a cat would block. <strong>Medium</strong> needs pairs of rooms that share two rows or columns. <strong>Hard</strong> and <strong>Expert</strong> need larger groups and “what if” chains.</li>
       <li><strong>Hint</strong> explains the next logical step. <strong>Reveal</strong> shows one cat. A time with either one does not count as a best.</li>
     </ul>
   </section>
@@ -232,14 +236,33 @@ function generate(n){
   }
 }
 
+const LEVELS={
+  kitten:{n:5,min:1,max:1},
+  easy:{n:6,min:1,max:2},
+  medium:{n:7,min:3,max:3},
+  hard:{n:8,min:3,max:4},
+  expert:{n:9,min:4,max:5},
+};
+const GENERATE_BUDGET_MS=2500;
+function generateLevel(level){
+  const {n,min,max}=LEVELS[level],deadline=performance.now()+GENERATE_BUDGET_MS;
+  let fallback=null;
+  for(;;){
+    const p=generate(n),tier=grade(p);
+    if(tier>=min&&tier<=max)return p;
+    if(tier<=max&&(!fallback||tier>fallback.tier))fallback={p,tier};
+    if(fallback&&performance.now()>deadline)return fallback.p;
+  }
+}
+
 const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch{return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
 const $=id=>document.getElementById(id);
 const board=$('board');
 let S;
 
-function newGame(n){
-  const p=generate(n);
-  S={...p,cells:new Array(n*n).fill(0),history:[],elapsed:0,solved:false,hinted:false};
+function newGame(level){
+  const p=generateLevel(level);
+  S={...p,level,cells:new Array(p.n*p.n).fill(0),history:[],elapsed:0,solved:false,hinted:false};
   start();
 }
 function start(){
@@ -256,7 +279,7 @@ function start(){
     if(c<n-1&&g[i+1]!==g[i])d.classList.add('rt');
     board.appendChild(d);
   }
-  document.querySelectorAll('.levels button').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===n)));
+  document.querySelectorAll('.levels button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.level===S.level)));
   $('win').hidden=true;
   $('tip').hidden=true;
   fxRun++;
@@ -266,12 +289,12 @@ function start(){
   save();
 }
 
-const touches=(n,i,j)=>{const ri=Math.floor(i/n),ci=i%n,rj=Math.floor(j/n),cj=j%n;return ri===rj||ci===cj||S.rooms[i]===S.rooms[j]||(Math.abs(ri-rj)<2&&Math.abs(ci-cj)<2)};
+const touches=(g,i,j)=>{const n=g.n,ri=Math.floor(i/n),ci=i%n,rj=Math.floor(j/n),cj=j%n;return ri===rj||ci===cj||g.rooms[i]===g.rooms[j]||(Math.abs(ri-rj)<2&&Math.abs(ci-cj)<2)};
 function analyse(){
   const n=S.n,bad=new Set(),blocked=new Set(),cats=[];
   S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
-  for(let a=0;a<cats.length;a++)for(let b=a+1;b<cats.length;b++)if(touches(n,cats[a],cats[b])){bad.add(cats[a]);bad.add(cats[b])}
-  for(const c of cats)for(let i=0;i<n*n;i++)if(i!==c&&touches(n,c,i))blocked.add(i);
+  for(let a=0;a<cats.length;a++)for(let b=a+1;b<cats.length;b++)if(touches(S,cats[a],cats[b])){bad.add(cats[a]);bad.add(cats[b])}
+  for(const c of cats)for(let i=0;i<n*n;i++)if(i!==c&&touches(S,c,i))blocked.add(i);
   return {bad,blocked,cats};
 }
 const dist=(n,i,j)=>Math.max(Math.abs(Math.floor(i/n)-Math.floor(j/n)),Math.abs(i%n-j%n));
@@ -296,7 +319,7 @@ function paint(){
   count.textContent=`${cats.length} / ${S.n}`;
   if(shownCount>=0&&cats.length!==shownCount){count.classList.remove('bump');void count.offsetWidth;count.classList.add('bump')}
   shownCount=cats.length;
-  const best=store.get('catnap-best-'+S.n);
+  const best=store.get('catnap-best-'+S.level);
   $('best').textContent=best?`Best ${fmt(best)}`:'Best —';
   if(from!=null&&bad.has(from)){board.classList.remove('shake');void board.offsetWidth;board.classList.add('shake')}
   if(!S.solved&&cats.length===S.n&&bad.size===0)win(cats);
@@ -320,55 +343,55 @@ const ROOM_NAMES=['pink','blue','green','yellow','purple','teal','orange','olive
 const cap=s=>s[0].toUpperCase()+s.slice(1);
 const listNames=a=>a.length<3?a.join(' and '):a.slice(0,-1).join(', ')+' and '+a.at(-1);
 const where=i=>`row ${Math.floor(i/S.n)+1}, column ${i%S.n+1}`;
-const keyOf={row:i=>Math.floor(i/S.n),col:i=>i%S.n,room:i=>S.rooms[i]};
-function unitList(){
-  const n=S.n,seq=[...Array(n).keys()],u=[];
+function unitList(g){
+  const n=g.n,seq=[...Array(n).keys()],u=[];
   seq.forEach(r=>u.push({kind:'row',id:r,name:`row ${r+1}`,cells:seq.map(c=>r*n+c)}));
   seq.forEach(c=>u.push({kind:'col',id:c,name:`column ${c+1}`,cells:seq.map(r=>r*n+c)}));
-  seq.forEach(k=>u.push({kind:'room',id:k,name:`the ${ROOM_NAMES[k]} room`,cells:S.rooms.flatMap((g,i)=>g===k?[i]:[])}));
+  seq.forEach(k=>u.push({kind:'room',id:k,name:`the ${ROOM_NAMES[k]} room`,cells:g.rooms.flatMap((v,i)=>v===k?[i]:[])}));
   return u;
 }
-function boardState(useDots){
-  const n=S.n,cats=[],cand=new Set();
-  S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
-  for(let i=0;i<n*n;i++)if(S.cells[i]===0||(S.cells[i]===2&&!useDots))if(!cats.some(c=>touches(n,c,i)))cand.add(i);
-  const open=unitList().filter(u=>!u.cells.some(i=>S.cells[i]===1)).map(u=>({...u,free:u.cells.filter(i=>cand.has(i))}));
-  return {cand,open};
+function boardState(g,useDots){
+  const n=g.n,cats=[],cand=new Set();
+  g.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
+  for(let i=0;i<n*n;i++)if(g.cells[i]===0||(g.cells[i]===2&&!useDots))if(!cats.some(c=>touches(g,c,i)))cand.add(i);
+  const open=unitList(g).filter(u=>!u.cells.some(i=>g.cells[i]===1)).map(u=>({...u,free:u.cells.filter(i=>cand.has(i))}));
+  return {g,cand,open};
 }
-const fresh=cells=>cells.filter(i=>S.cells[i]===0);
+const fresh=(g,cells)=>cells.filter(i=>g.cells[i]===0);
 function* combos(a,k,from=0,acc=[]){if(acc.length===k){yield acc;return}for(let i=from;i<a.length;i++)yield* combos(a,k,i+1,[...acc,a[i]])}
-function stepSingle(open){
+function stepSingle({open}){
   for(const u of open)if(!u.free.length)return {text:`${cap(u.name)} has no free cell left, so one of your cats or dots is wrong. Undo a few moves.`,focus:u.cells,target:[]};
-  for(const u of open)if(u.free.length===1)return {text:`${cap(u.name)} has only one free cell left. Hold it to put the cat there.`,focus:u.cells,target:u.free};
+  for(const u of open)if(u.free.length===1)return {text:`${cap(u.name)} has only one free cell left. Hold it to put the cat there.`,focus:u.cells,target:u.free,cat:true};
 }
-function stepConfined(open){
+function stepConfined({g,open}){
   for(const a of open)for(const b of open){
     if(a.kind===b.kind||!a.free.every(i=>b.cells.includes(i)))continue;
-    const elim=fresh(b.free.filter(i=>!a.cells.includes(i)));
+    const elim=fresh(g,b.free.filter(i=>!a.cells.includes(i)));
     if(elim.length)return {text:`Every free cell of ${a.name} is inside ${b.name}. So ${b.name}'s cat belongs to ${a.name}, and the other cells of ${b.name} can't have a cat. Dot them.`,focus:a.free,target:elim};
   }
 }
-function stepSets(open,cand){
-  const plural={row:'rows',col:'columns',room:'rooms'};
-  for(let k=2;k<=4;k++)for(const [ak,bk] of [['room','row'],['room','col'],['row','room'],['col','room']]){
+const PLURAL={row:'rows',col:'columns',room:'rooms'};
+function stepSets({g,open,cand},k){
+  const keyOf={row:i=>Math.floor(i/g.n),col:i=>i%g.n,room:i=>g.rooms[i]};
+  for(const [ak,bk] of [['room','row'],['room','col'],['row','room'],['col','room']]){
     const pool=open.filter(u=>u.kind===ak&&u.free.length>=2);
     for(const set of combos(pool,k)){
       const free=set.flatMap(u=>u.free),bIds=new Set(free.map(keyOf[bk]));
       if(bIds.size!==k)continue;
       const aIds=new Set(set.map(u=>u.id));
-      const elim=fresh([...cand].filter(i=>bIds.has(keyOf[bk](i))&&!aIds.has(keyOf[ak](i))));
+      const elim=fresh(g,[...cand].filter(i=>bIds.has(keyOf[bk](i))&&!aIds.has(keyOf[ak](i))));
       if(!elim.length)continue;
       const bNames=open.filter(u=>u.kind===bk&&bIds.has(u.id)).map(u=>u.name);
-      return {text:`${cap(listNames(set.map(u=>u.name)))} fit only in ${listNames(bNames)}. Those ${k} ${plural[bk]} must hold these ${k} cats, so no other cell in them can have a cat. Dot them.`,focus:free,target:elim};
+      return {text:`${cap(listNames(set.map(u=>u.name)))} fit only in ${listNames(bNames)}. Those ${k} ${PLURAL[bk]} must hold these ${k} cats, so no other cell in them can have a cat. Dot them.`,focus:free,target:elim};
     }
   }
 }
-function reasons(x,cells){
-  const n=S.n,count={column:0,row:0,room:0,near:0};
+function reasons(g,x,cells){
+  const n=g.n,count={column:0,row:0,room:0,near:0};
   for(const i of cells){
     if(i%n===x%n)count.column++;
     else if(Math.floor(i/n)===Math.floor(x/n))count.row++;
-    else if(S.rooms[i]===S.rooms[x])count.room++;
+    else if(g.rooms[i]===g.rooms[x])count.room++;
     else count.near++;
   }
   const say=(k,what)=>k===1?`1 is ${what}`:`${k} are ${what}`;
@@ -379,16 +402,16 @@ function reasons(x,cells){
   if(count.near)parts.push(say(count.near,'right next to it'));
   return listNames(parts);
 }
-function stepBlocksUnit(open,cand){
-  for(const x of fresh([...cand]))for(const u of open){
-    if(u.cells.includes(x)||!u.free.every(i=>touches(S.n,x,i)))continue;
+function stepBlocksUnit({g,open,cand}){
+  for(const x of fresh(g,[...cand]))for(const u of open){
+    if(u.cells.includes(x)||!u.free.every(i=>touches(g,x,i)))continue;
     const k=u.free.length;
-    const detail=k>1?`Of its ${k} free cells (outlined), ${reasons(x,u.free)}`:`Its only free cell (outlined) ${reasons(x,u.free).slice(2)}`;
+    const detail=k>1?`Of its ${k} free cells (outlined), ${reasons(g,x,u.free)}`:`Its only free cell (outlined) ${reasons(g,x,u.free).slice(2)}`;
     return {text:`A cat here would leave ${u.name} with nowhere for its cat. ${detail}. So this cell can't have a cat. Dot it.`,focus:u.free,target:[x]};
   }
 }
-function tryCat(x,cand,open){
-  const left=new Set(cand),drop=p=>{for(const i of [...left])if(i===p||touches(S.n,p,i))left.delete(i)};
+function tryCat(g,x,cand,open){
+  const left=new Set(cand),drop=p=>{for(const i of [...left])if(i===p||touches(g,p,i))left.delete(i)};
   drop(x);
   let units=open.filter(u=>!u.cells.includes(x)),forced=0;
   for(;;){
@@ -402,12 +425,36 @@ function tryCat(x,cand,open){
     drop(placed);forced++;units=units.filter(u=>!u.cells.includes(placed));
   }
 }
-function stepTry(open,cand){
+function stepTry({g,open,cand},maxForced){
   let best=null;
-  for(const x of fresh([...cand])){const r=tryCat(x,cand,open);if(r&&(!best||r.forced<best.forced))best={x,...r}}
+  for(const x of fresh(g,[...cand])){const r=tryCat(g,x,cand,open);if(r&&r.forced<=maxForced&&(!best||r.forced<best.forced))best={x,...r}}
   if(!best)return;
   const chain=best.forced?`it forces ${best.forced} more cat${best.forced>1?'s':''}, and then`:'then';
   return {text:`Imagine a cat here: ${chain} ${best.unit.name} has no free cell left. So this cell can't have a cat. Dot it.`,focus:best.unit.cells,target:[best.x]};
+}
+const TECHNIQUES=[
+  [1,stepSingle],
+  [2,stepConfined],
+  [2,stepBlocksUnit],
+  [3,st=>stepSets(st,2)],
+  [4,st=>stepSets(st,3)||stepSets(st,4)||stepTry(st,1)],
+  [5,st=>stepTry(st,Infinity)],
+];
+const UNSOLVABLE=6;
+function simplestStep(st){
+  for(const [tier,find] of TECHNIQUES){const step=find(st);if(step)return {...step,tier}}
+}
+function grade(p){
+  const g={n:p.n,rooms:p.rooms,cells:new Array(p.n*p.n).fill(0)};
+  let tier=0;
+  for(let placed=0;placed<p.n;){
+    const step=simplestStep(boardState(g,true));
+    if(!step||!step.target.length)return UNSOLVABLE;
+    tier=Math.max(tier,step.tier);
+    if(step.cat){g.cells[step.target[0]]=1;placed++}
+    else step.target.forEach(i=>{g.cells[i]=2});
+  }
+  return tier;
 }
 function nextStep(){
   const {bad,cats}=analyse();
@@ -416,8 +463,7 @@ function nextStep(){
   const wrongCat=cats.find(i=>!sol.has(i));
   if(wrongCat!==undefined)return {text:`The cat at ${where(wrongCat)} doesn't fit the solution. Tap it to remove it.`,focus:[],target:[wrongCat]};
   const wrongDot=S.cells.findIndex((v,i)=>v===2&&sol.has(i));
-  const {cand,open}=boardState(wrongDot<0);
-  const step=stepSingle(open)||stepConfined(open)||stepSets(open,cand)||stepBlocksUnit(open,cand)||stepTry(open,cand);
+  const step=simplestStep(boardState(S,wrongDot<0));
   if(step)return step;
   if(wrongDot>=0)return {text:`The dot at ${where(wrongDot)} covers a cell that needs a cat. Tap it to clear it.`,focus:[],target:[wrongDot]};
   return {text:'No simple step found here. Use Reveal to show one cat.',focus:[],target:[]};
@@ -456,10 +502,10 @@ let fxRun=0;
 const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 function win(cats){
   S.solved=true;
-  const key='catnap-best-'+S.n,best=store.get(key),t=Math.round(S.elapsed);
+  const key='catnap-best-'+S.level,best=store.get(key),t=Math.round(S.elapsed);
   const record=!S.hinted&&(!best||t<best);
   if(record)store.set(key,t);
-  $('win-text').textContent=`${S.n}×${S.n} in ${fmt(t)}${S.hinted?' (with hints)':''}${record?' — new best':''}`;
+  $('win-text').textContent=`${cap(S.level)}, ${S.n}×${S.n}, in ${fmt(t)}${S.hinted?' (with hints)':''}${record?' — new best':''}`;
   save();
   const order=[...cats].sort((a,b)=>a-b);
   order.forEach((i,k)=>{const d=board.children[i];d.classList.remove('party');void d.offsetWidth;d.style.animationDelay='';d.firstChild.style.animationDelay=`${k*90}ms`;d.classList.add('party')});
@@ -553,9 +599,9 @@ board.addEventListener('keydown',e=>{
 });
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();undo()}});
 
-document.querySelectorAll('.levels button').forEach(b=>b.addEventListener('click',()=>newGame(+b.dataset.n)));
-$('new').onclick=()=>newGame(S.n);
-$('again').onclick=()=>newGame(S.n);
+document.querySelectorAll('.levels button').forEach(b=>b.addEventListener('click',()=>newGame(b.dataset.level)));
+$('new').onclick=()=>newGame(S.level);
+$('again').onclick=()=>newGame(S.level);
 $('undo').onclick=undo;
 $('hint').onclick=hint;
 $('reveal').onclick=reveal;
@@ -567,11 +613,11 @@ $('theme').onclick=()=>{
   root.dataset.theme=dark?'light':'dark';
 };
 
-function valid(g){return g&&[6,8,9].includes(g.n)&&Array.isArray(g.cells)&&g.cells.length===g.n*g.n&&Array.isArray(g.rooms)&&Array.isArray(g.cols)}
+function valid(g){return g&&Object.hasOwn(LEVELS,g.level)&&LEVELS[g.level].n===g.n&&Array.isArray(g.cells)&&g.cells.length===g.n*g.n&&Array.isArray(g.rooms)&&Array.isArray(g.cols)}
 function boot(data){
   const saved=valid(data&&data.game)?data.game:store.get('catnap-game');
   if(valid(saved)){S={history:[],elapsed:0,solved:false,hinted:false,...saved};start();if(S.solved)$('win').hidden=false,$('win-text').textContent='Solved. Start the next one?'}
-  else newGame(6);
+  else newGame('kitten');
 }
 window.claude?.hot?.snapshot?.(()=>({game:S}));
 window.claude?.hot?.ready?window.claude.hot.ready(boot):boot(window.claude?.hot?.data??{});
