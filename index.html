@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Cat Nap: put one sleeping cat in each row, column and room. No two cats may touch.">
+<style>*,*::before,*::after{box-sizing:border-box}:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}</style>
+<title>Cat Nap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@600;800&family=Figtree:wght@400;600;700&display=swap">
+<style>
+/* Layout: one centred column — title, status strip, the quilt board, a row of controls, then the rules. */
+:root{
+  --bg:#f3eef7;--panel:#fffaf3;--ink:#3b2f45;--muted:#7d6f86;--line:#d9cfe0;--accent:#e2735b;--bad:#d6334c;--good:#3f9b6b;
+  --cat:#f1a65a;--cat-dark:#c9763a;--cat-face:#5a3a2a;
+  --r0:#f7cfd6;--r1:#cfe3f7;--r2:#d9efcf;--r3:#fbe3b4;--r4:#e3d4f6;--r5:#c8ece6;--r6:#f6d7c3;--r7:#e6e8c2;--r8:#d3d9f2;
+  --display:"Grandstander","Comic Sans MS","Trebuchet MS",system-ui,sans-serif;
+  --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1d1824;--panel:#28212f;--ink:#f1e8f6;--muted:#a898b2;--line:#43394d;--accent:#f08a72;--bad:#ff6b80;--good:#6fd09a;
+  --cat:#f1a65a;--cat-dark:#b8682f;--cat-face:#4a2e20;
+  --r0:#5b3a45;--r1:#33475e;--r2:#3c5440;--r3:#5e4f30;--r4:#4a3d62;--r5:#2f5552;--r6:#5d4436;--r7:#4d5034;--r8:#3b4363;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1d1824;--panel:#28212f;--ink:#f1e8f6;--muted:#a898b2;--line:#43394d;--accent:#f08a72;--bad:#ff6b80;--good:#6fd09a;
+  --cat:#f1a65a;--cat-dark:#b8682f;--cat-face:#4a2e20;
+  --r0:#5b3a45;--r1:#33475e;--r2:#3c5440;--r3:#5e4f30;--r4:#4a3d62;--r5:#2f5552;--r6:#5d4436;--r7:#4d5034;--r8:#3b4363;color-scheme:dark}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:520px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:800;font-size:2.1rem;line-height:1;margin:0;letter-spacing:-.01em;text-wrap:balance;display:flex;align-items:center;gap:8px}
+h1 svg{width:44px;height:44px}
+.levels{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px}
+.levels button{font:600 .85rem var(--body);border:0;background:none;color:var(--muted);padding:6px 12px;border-radius:999px;cursor:pointer}
+.levels button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.status{display:flex;justify-content:space-between;align-items:center;font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600;font-size:.9rem}
+.status b{color:var(--ink);font-size:1.05rem}
+.board-wrap{position:relative}
+.board{display:grid;width:100%;aspect-ratio:1;max-width:100%;border:3px solid var(--ink);border-radius:14px;overflow:hidden;
+  touch-action:none;user-select:none;-webkit-user-select:none;background:var(--ink)}
+.cell{position:relative;min-width:0;min-height:0;overflow:hidden;border:0 solid var(--ink);display:grid;place-items:center;cursor:pointer;
+  box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--ink) 22%,transparent);transition:filter .12s}
+.cell:hover{filter:brightness(.96)}
+.cell:focus-visible{outline:3px solid var(--accent);outline-offset:-3px;z-index:2}
+.cell.t{border-top-width:2px}.cell.b{border-bottom-width:2px}.cell.l{border-left-width:2px}.cell.rt{border-right-width:2px}
+.cell svg{width:78%;height:78%;pointer-events:none}
+.cell{-webkit-touch-callout:none}
+.cell .mark{width:22%;height:22%;border-radius:50%;background:color-mix(in srgb,var(--ink) 45%,transparent);animation:dot .18s ease-out}
+.cell .mark.auto{width:16%;height:16%;background:color-mix(in srgb,var(--ink) 28%,transparent)}
+.cell .mark.ripple{animation:ripple .42s cubic-bezier(.3,1.6,.5,1) backwards}
+.cell.cat svg{animation:land .5s cubic-bezier(.3,1.5,.5,1)}
+.cell.cat::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid var(--accent);opacity:0;animation:ring .55s ease-out;pointer-events:none}
+.cell.holding::after{content:"";position:absolute;inset:10%;border-radius:50%;background:color-mix(in srgb,var(--accent) 40%,transparent);animation:charge var(--hold) linear forwards;pointer-events:none}
+.cell.bad::after{content:"";position:absolute;inset:8%;border-radius:50%;background:color-mix(in srgb,var(--bad) 35%,transparent);z-index:0;animation:throb .9s ease-in-out infinite}
+.cell.bad svg{position:relative;z-index:1}
+.cell.hint{animation:flash 1s ease-out 2}
+.cell.party svg{animation:hop .55s cubic-bezier(.3,1.6,.5,1) backwards}
+.cell.focus{box-shadow:inset 0 0 0 3px var(--accent)}
+.cell.target::before{content:"";position:absolute;inset:12%;border-radius:50%;border:3px dashed var(--accent);animation:seek 1.2s ease-in-out infinite;pointer-events:none}
+.tip{background:var(--panel);border:2px solid var(--accent);border-radius:14px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start}
+.tip p{margin:0;flex:1;min-width:0}
+.tip b{font:800 .8rem var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);display:block}
+.tip button{font:700 .85rem var(--body);border:1px solid var(--line);background:none;color:var(--ink);border-radius:10px;padding:6px 10px;cursor:pointer}
+@keyframes seek{50%{transform:scale(.8) rotate(45deg)}}
+.board.shake{animation:shake .35s}
+#count.bump{display:inline-block;animation:bump .35s cubic-bezier(.3,1.8,.5,1)}
+.fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+@keyframes land{0%{transform:translateY(-60%) scale(.3) rotate(-25deg);opacity:0}60%{transform:translateY(6%) scale(1.15,.85)}100%{transform:none}}
+@keyframes ring{0%{transform:scale(.3);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+@keyframes charge{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes dot{from{transform:scale(0)}}
+@keyframes ripple{0%{transform:scale(0)}60%{transform:scale(1.8)}100%{transform:scale(1)}}
+@keyframes throb{50%{transform:scale(.85)}}
+@keyframes hop{0%,100%{transform:none}40%{transform:translateY(-28%) rotate(-8deg) scale(1.1)}}
+@keyframes shake{20%{transform:translateX(-6px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+@keyframes bump{50%{transform:scale(1.4)}}
+@keyframes flash{50%{filter:brightness(1.25) saturate(1.4)}}
+.controls{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.controls button{font:700 .88rem var(--body);padding:11px 2px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.controls button:hover{border-color:var(--ink)}
+.controls button:focus-visible,.levels button:focus-visible,.theme:focus-visible,.win button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.controls .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.rules{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;color:var(--muted);font-size:.92rem}
+.rules h2{font:800 1.05rem var(--display);color:var(--ink);margin:0 0 6px}
+.rules ul{margin:0;padding-left:18px;display:grid;gap:3px}
+.rules strong{color:var(--ink)}
+.theme{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;width:36px;height:36px;cursor:pointer;font-size:1rem}
+.toolbar{display:flex;gap:8px;align-items:center}
+.win{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--bg) 78%,transparent);border-radius:14px;backdrop-filter:blur(2px)}
+.win .card{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:20px 24px;text-align:center;display:grid;gap:6px;max-width:85%}
+.win h3{font:800 1.7rem var(--display);margin:0}
+.win p{margin:0;color:var(--muted);font-variant-numeric:tabular-nums}
+.win button{margin-top:8px;font:700 1rem var(--body);background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;cursor:pointer}
+.zz{font:800 .9em var(--display);fill:var(--muted)}
+@media (prefers-reduced-motion:reduce){.cell *,.cell::before,.cell::after,.cell.hint,.board.shake,#count.bump{animation:none!important}}
+@media (max-width:420px){h1{font-size:1.7rem}.levels button{padding:6px 9px}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#cat"/></svg>Cat Nap</h1>
+    <div class="toolbar">
+      <div class="levels" role="group" aria-label="Difficulty">
+        <button id="lv-6" data-n="6">Easy</button>
+        <button id="lv-8" data-n="8">Medium</button>
+        <button id="lv-9" data-n="9">Hard</button>
+      </div>
+      <button class="theme" id="theme" aria-label="Switch light or dark theme">◐</button>
+    </div>
+  </header>
+  <div class="status">
+    <span>Cats <b id="count">0 / 6</b></span>
+    <span id="best">Best —</span>
+    <span>Time <b id="time">0:00</b></span>
+  </div>
+  <div class="board-wrap">
+    <div class="board" id="board" role="grid" aria-label="Puzzle board"></div>
+    <canvas class="fx" id="fx" aria-hidden="true"></canvas>
+    <div class="win" id="win" hidden>
+      <div class="card">
+        <h3>All asleep!</h3>
+        <p id="win-text"></p>
+        <button id="again">Next puzzle</button>
+      </div>
+    </div>
+  </div>
+  <div class="tip" id="tip" hidden role="status">
+    <p><b>Hint</b><span id="tip-text"></span></p>
+    <button id="tip-close">Got it</button>
+  </div>
+  <div class="controls">
+    <button id="undo">Undo</button>
+    <button id="hint">Hint</button>
+    <button id="reveal">Reveal</button>
+    <button id="clear">Clear</button>
+    <button id="new" class="primary">New</button>
+  </div>
+  <section class="rules">
+    <h2>How to play</h2>
+    <ul>
+      <li>Put <strong>one cat</strong> in each row, each column and each coloured room.</li>
+      <li>Cats need space: two cats <strong>can't touch</strong>, not even at a corner.</li>
+      <li><strong>Hold</strong> a cell to put a cat there. Each cat dots the cells it blocks.</li>
+      <li><strong>Tap</strong> a cell to dot it (no cat here), or to clear it. Drag across cells to dot many at once.</li>
+      <li>Every puzzle has exactly one solution, so you never need to guess.</li>
+      <li><strong>Hint</strong> explains the next logical step. <strong>Reveal</strong> shows one cat. A time with either one does not count as a best.</li>
+    </ul>
+  </section>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="cat" viewBox="0 0 100 100">
+      <path d="M78 70c12-2 16-12 9-18" fill="none" stroke="var(--cat-dark)" stroke-width="7" stroke-linecap="round"/>
+      <ellipse cx="56" cy="64" rx="32" ry="21" fill="var(--cat)"/>
+      <path d="M44 50c6-6 18-6 24 0" fill="none" stroke="var(--cat-dark)" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <path d="M56 58c5-4 12-4 17 0" fill="none" stroke="var(--cat-dark)" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <path d="M17 44l4-17 11 11z" fill="var(--cat-dark)"/>
+      <path d="M37 37l11-9 1 16z" fill="var(--cat-dark)"/>
+      <circle cx="33" cy="54" r="19" fill="var(--cat)"/>
+      <path d="M22 54q4 3 8 0M37 54q4 3 8 0" fill="none" stroke="var(--cat-face)" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M31.5 60l1.5 1.6 1.5-1.6z" fill="var(--cat-face)"/>
+      <ellipse cx="24" cy="80" rx="9" ry="5" fill="var(--cat)"/>
+      <ellipse cx="42" cy="82" rx="9" ry="5" fill="var(--cat)"/>
+      <text x="64" y="30" class="zz" font-size="17">z</text><text x="76" y="18" class="zz" font-size="12">z</text>
+    </symbol>
+  </defs>
+</svg>
+
+<script>
+const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+
+function makeSolution(n){
+  const cols=[],used=new Array(n).fill(false);
+  const go=r=>{if(r===n)return true;for(const c of shuffle([...Array(n).keys()])){if(used[c]||(r>0&&Math.abs(cols[r-1]-c)<2))continue;used[c]=true;cols[r]=c;if(go(r+1))return true;used[c]=false}return false};
+  go(0);return cols;
+}
+function neighbours(n,i){const r=Math.floor(i/n),c=i%n,out=[];for(const [dr,dc] of DIRS){const rr=r+dr,cc=c+dc;if(rr>=0&&cc>=0&&rr<n&&cc<n)out.push(rr*n+cc)}return out}
+function growRooms(n,cols){
+  const g=new Array(n*n).fill(-1);
+  cols.forEach((c,r)=>{g[r*n+c]=r});
+  for(let left=n*n-n;left>0;left--){
+    const cand=[];
+    for(let i=0;i<n*n;i++)if(g[i]===-1)for(const j of neighbours(n,i))if(g[j]!==-1)cand.push([i,g[j]]);
+    const [i,v]=cand[Math.floor(Math.random()*cand.length)];g[i]=v;
+  }
+  return g;
+}
+function findOther(n,g,cols){
+  let found=null;
+  const go=(r,colMask,roomMask,prev,acc)=>{
+    if(r===n){if(acc.some((c,i)=>c!==cols[i])){found=acc.slice();return true}return false}
+    for(let c=0;c<n;c++){
+      if(colMask>>c&1||(r>0&&Math.abs(prev-c)<2))continue;
+      const room=g[r*n+c];if(roomMask>>room&1)continue;
+      acc[r]=c;if(go(r+1,colMask|1<<c,roomMask|1<<room,c,acc))return true;
+    }
+    return false;
+  };
+  go(0,0,0,-9,[]);return found;
+}
+function stillConnected(n,g,room,removed){
+  const cells=[];for(let i=0;i<n*n;i++)if(g[i]===room&&i!==removed)cells.push(i);
+  if(!cells.length)return false;
+  const seen=new Set([cells[0]]),stack=[cells[0]];
+  while(stack.length){const i=stack.pop();for(const j of neighbours(n,i))if(j!==removed&&g[j]===room&&!seen.has(j)){seen.add(j);stack.push(j)}}
+  return seen.size===cells.length;
+}
+function repair(n,g,cols,alt){
+  const catCells=new Set(cols.map((c,r)=>r*n+c));
+  for(const x of shuffle(alt.map((c,r)=>r*n+c).filter(i=>!catCells.has(i)))){
+    const others=shuffle([...new Set(neighbours(n,x).map(j=>g[j]))].filter(v=>v!==g[x]));
+    if(!others.length||!stillConnected(n,g,g[x],x))continue;
+    g[x]=others[0];return true;
+  }
+  return false;
+}
+function generate(n){
+  for(;;){
+    const cols=makeSolution(n),g=growRooms(n,cols);
+    for(let step=0;step<60;step++){
+      const alt=findOther(n,g,cols);
+      if(!alt)return {n,cols,rooms:g};
+      if(!repair(n,g,cols,alt))break;
+    }
+  }
+}
+
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch{return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const $=id=>document.getElementById(id);
+const board=$('board');
+let S;
+
+function newGame(n){
+  const p=generate(n);
+  S={...p,cells:new Array(n*n).fill(0),history:[],elapsed:0,solved:false,hinted:false};
+  start();
+}
+function start(){
+  board.style.gridTemplateColumns=board.style.gridTemplateRows=`repeat(${S.n},minmax(0,1fr))`;
+  board.innerHTML='';
+  const n=S.n;
+  for(let i=0;i<n*n;i++){
+    const d=document.createElement('div'),r=Math.floor(i/n),c=i%n,g=S.rooms;
+    d.className='cell';d.tabIndex=i===0?0:-1;d.dataset.i=i;d.setAttribute('role','gridcell');
+    d.style.background=`var(--r${g[i]})`;
+    if(r>0&&g[i-n]!==g[i])d.classList.add('t');
+    if(r<n-1&&g[i+n]!==g[i])d.classList.add('b');
+    if(c>0&&g[i-1]!==g[i])d.classList.add('l');
+    if(c<n-1&&g[i+1]!==g[i])d.classList.add('rt');
+    board.appendChild(d);
+  }
+  document.querySelectorAll('.levels button').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===n)));
+  $('win').hidden=true;
+  $('tip').hidden=true;
+  fxRun++;
+  const cv=$('fx');cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
+  lastTick=performance.now();
+  paint();
+  save();
+}
+
+const touches=(n,i,j)=>{const ri=Math.floor(i/n),ci=i%n,rj=Math.floor(j/n),cj=j%n;return ri===rj||ci===cj||S.rooms[i]===S.rooms[j]||(Math.abs(ri-rj)<2&&Math.abs(ci-cj)<2)};
+function analyse(){
+  const n=S.n,bad=new Set(),blocked=new Set(),cats=[];
+  S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
+  for(let a=0;a<cats.length;a++)for(let b=a+1;b<cats.length;b++)if(touches(n,cats[a],cats[b])){bad.add(cats[a]);bad.add(cats[b])}
+  for(const c of cats)for(let i=0;i<n*n;i++)if(i!==c&&touches(n,c,i))blocked.add(i);
+  return {bad,blocked,cats};
+}
+const dist=(n,i,j)=>Math.max(Math.abs(Math.floor(i/n)-Math.floor(j/n)),Math.abs(i%n-j%n));
+const CAT_SVG='<svg viewBox="0 0 100 100"><use href="#cat"/></svg>';
+let shownCount=-1;
+function paint(){
+  const {bad,blocked,cats}=analyse(),kids=board.children,from=S.lastCat;
+  S.cells.forEach((v,i)=>{
+    const d=kids[i],want=v===1?'cat':v===2?'mark':blocked.has(i)?'auto':'';
+    if(d.dataset.v!==want){
+      d.dataset.v=want;
+      d.classList.toggle('cat',v===1);
+      d.innerHTML=want==='cat'?CAT_SVG:want==='mark'?'<span class="mark"></span>':want==='auto'?'<span class="mark auto"></span>':'';
+      if(want==='auto'&&from!=null){const m=d.firstChild;m.classList.add('ripple');m.style.animationDelay=`${dist(S.n,from,i)*55}ms`}
+    }
+    d.classList.toggle('bad',bad.has(i));
+    const r=Math.floor(i/S.n)+1,c=i%S.n+1;
+    d.setAttribute('aria-label',`Row ${r}, column ${c}, ${want==='cat'?'cat':want?'dot':'empty'}${bad.has(i)?', clashes':''}`);
+  });
+  S.lastCat=null;
+  const count=$('count');
+  count.textContent=`${cats.length} / ${S.n}`;
+  if(shownCount>=0&&cats.length!==shownCount){count.classList.remove('bump');void count.offsetWidth;count.classList.add('bump')}
+  shownCount=cats.length;
+  const best=store.get('catnap-best-'+S.n);
+  $('best').textContent=best?`Best ${fmt(best)}`:'Best —';
+  if(from!=null&&bad.has(from)){board.classList.remove('shake');void board.offsetWidth;board.classList.add('shake')}
+  if(!S.solved&&cats.length===S.n&&bad.size===0)win(cats);
+}
+function setCells(changes){
+  if(S.solved)return;
+  const rec=changes.filter(([i,v])=>S.cells[i]!==v).map(([i,v])=>[i,S.cells[i],v]);
+  if(!rec.length)return;
+  rec.forEach(([i,,v])=>{S.cells[i]=v});
+  clearTip();
+  const placed=rec.find(([,,v])=>v===1);
+  if(placed){S.lastCat=placed[0];try{navigator.vibrate?.(15)}catch{}}
+  S.history.push(rec);
+  paint();save();
+}
+function undo(){
+  const rec=S.history.pop();if(!rec||S.solved)return;
+  rec.forEach(([i,old])=>{S.cells[i]=old});paint();save();
+}
+const ROOM_NAMES=['pink','blue','green','yellow','purple','teal','orange','olive','indigo'];
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+const listNames=a=>a.length<3?a.join(' and '):a.slice(0,-1).join(', ')+' and '+a.at(-1);
+const where=i=>`row ${Math.floor(i/S.n)+1}, column ${i%S.n+1}`;
+const keyOf={row:i=>Math.floor(i/S.n),col:i=>i%S.n,room:i=>S.rooms[i]};
+function unitList(){
+  const n=S.n,seq=[...Array(n).keys()],u=[];
+  seq.forEach(r=>u.push({kind:'row',id:r,name:`row ${r+1}`,cells:seq.map(c=>r*n+c)}));
+  seq.forEach(c=>u.push({kind:'col',id:c,name:`column ${c+1}`,cells:seq.map(r=>r*n+c)}));
+  seq.forEach(k=>u.push({kind:'room',id:k,name:`the ${ROOM_NAMES[k]} room`,cells:S.rooms.flatMap((g,i)=>g===k?[i]:[])}));
+  return u;
+}
+function boardState(useDots){
+  const n=S.n,cats=[],cand=new Set();
+  S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
+  for(let i=0;i<n*n;i++)if(S.cells[i]===0||(S.cells[i]===2&&!useDots))if(!cats.some(c=>touches(n,c,i)))cand.add(i);
+  const open=unitList().filter(u=>!u.cells.some(i=>S.cells[i]===1)).map(u=>({...u,free:u.cells.filter(i=>cand.has(i))}));
+  return {cand,open};
+}
+const fresh=cells=>cells.filter(i=>S.cells[i]===0);
+function* combos(a,k,from=0,acc=[]){if(acc.length===k){yield acc;return}for(let i=from;i<a.length;i++)yield* combos(a,k,i+1,[...acc,a[i]])}
+function stepSingle(open){
+  for(const u of open)if(!u.free.length)return {text:`${cap(u.name)} has no free cell left, so one of your cats or dots is wrong. Undo a few moves.`,focus:u.cells,target:[]};
+  for(const u of open)if(u.free.length===1)return {text:`${cap(u.name)} has only one free cell left. Hold it to put the cat there.`,focus:u.cells,target:u.free};
+}
+function stepConfined(open){
+  for(const a of open)for(const b of open){
+    if(a.kind===b.kind||!a.free.every(i=>b.cells.includes(i)))continue;
+    const elim=fresh(b.free.filter(i=>!a.cells.includes(i)));
+    if(elim.length)return {text:`Every free cell of ${a.name} is inside ${b.name}. So ${b.name}'s cat belongs to ${a.name}, and the other cells of ${b.name} can't have a cat. Dot them.`,focus:a.free,target:elim};
+  }
+}
+function stepSets(open,cand){
+  const plural={row:'rows',col:'columns',room:'rooms'};
+  for(let k=2;k<=4;k++)for(const [ak,bk] of [['room','row'],['room','col'],['row','room'],['col','room']]){
+    const pool=open.filter(u=>u.kind===ak&&u.free.length>=2);
+    for(const set of combos(pool,k)){
+      const free=set.flatMap(u=>u.free),bIds=new Set(free.map(keyOf[bk]));
+      if(bIds.size!==k)continue;
+      const aIds=new Set(set.map(u=>u.id));
+      const elim=fresh([...cand].filter(i=>bIds.has(keyOf[bk](i))&&!aIds.has(keyOf[ak](i))));
+      if(!elim.length)continue;
+      const bNames=open.filter(u=>u.kind===bk&&bIds.has(u.id)).map(u=>u.name);
+      return {text:`${cap(listNames(set.map(u=>u.name)))} fit only in ${listNames(bNames)}. Those ${k} ${plural[bk]} must hold these ${k} cats, so no other cell in them can have a cat. Dot them.`,focus:free,target:elim};
+    }
+  }
+}
+function reasons(x,cells){
+  const n=S.n,count={column:0,row:0,room:0,near:0};
+  for(const i of cells){
+    if(i%n===x%n)count.column++;
+    else if(Math.floor(i/n)===Math.floor(x/n))count.row++;
+    else if(S.rooms[i]===S.rooms[x])count.room++;
+    else count.near++;
+  }
+  const say=(k,what)=>k===1?`1 is ${what}`:`${k} are ${what}`;
+  const parts=[];
+  if(count.column)parts.push(say(count.column,'in the same column'));
+  if(count.row)parts.push(say(count.row,'in the same row'));
+  if(count.room)parts.push(say(count.room,'in the same room'));
+  if(count.near)parts.push(say(count.near,'right next to it'));
+  return listNames(parts);
+}
+function stepBlocksUnit(open,cand){
+  for(const x of fresh([...cand]))for(const u of open){
+    if(u.cells.includes(x)||!u.free.every(i=>touches(S.n,x,i)))continue;
+    const k=u.free.length;
+    const detail=k>1?`Of its ${k} free cells (outlined), ${reasons(x,u.free)}`:`Its only free cell (outlined) ${reasons(x,u.free).slice(2)}`;
+    return {text:`A cat here would leave ${u.name} with nowhere for its cat. ${detail}. So this cell can't have a cat. Dot it.`,focus:u.free,target:[x]};
+  }
+}
+function tryCat(x,cand,open){
+  const left=new Set(cand),drop=p=>{for(const i of [...left])if(i===p||touches(S.n,p,i))left.delete(i)};
+  drop(x);
+  let units=open.filter(u=>!u.cells.includes(x)),forced=0;
+  for(;;){
+    let placed=null;
+    for(const u of units){
+      const f=u.cells.filter(i=>left.has(i));
+      if(!f.length)return {unit:u,forced};
+      if(f.length===1){placed=f[0];break}
+    }
+    if(placed===null)return null;
+    drop(placed);forced++;units=units.filter(u=>!u.cells.includes(placed));
+  }
+}
+function stepTry(open,cand){
+  let best=null;
+  for(const x of fresh([...cand])){const r=tryCat(x,cand,open);if(r&&(!best||r.forced<best.forced))best={x,...r}}
+  if(!best)return;
+  const chain=best.forced?`it forces ${best.forced} more cat${best.forced>1?'s':''}, and then`:'then';
+  return {text:`Imagine a cat here: ${chain} ${best.unit.name} has no free cell left. So this cell can't have a cat. Dot it.`,focus:best.unit.cells,target:[best.x]};
+}
+function nextStep(){
+  const {bad,cats}=analyse();
+  if(bad.size)return {text:'These cats break a rule: they share a row, column or room, or they touch. Remove one of them.',focus:[...bad],target:[]};
+  const sol=new Set(S.cols.map((c,r)=>r*S.n+c));
+  const wrongCat=cats.find(i=>!sol.has(i));
+  if(wrongCat!==undefined)return {text:`The cat at ${where(wrongCat)} doesn't fit the solution. Tap it to remove it.`,focus:[],target:[wrongCat]};
+  const wrongDot=S.cells.findIndex((v,i)=>v===2&&sol.has(i));
+  const {cand,open}=boardState(wrongDot<0);
+  const step=stepSingle(open)||stepConfined(open)||stepSets(open,cand)||stepBlocksUnit(open,cand)||stepTry(open,cand);
+  if(step)return step;
+  if(wrongDot>=0)return {text:`The dot at ${where(wrongDot)} covers a cell that needs a cat. Tap it to clear it.`,focus:[],target:[wrongDot]};
+  return {text:'No simple step found here. Use Reveal to show one cat.',focus:[],target:[]};
+}
+function clearTip(){
+  $('tip').hidden=true;
+  for(const d of board.children)d.classList.remove('focus','target');
+}
+function hint(){
+  if(S.solved)return;
+  clearTip();
+  const step=nextStep();
+  S.hinted=true;
+  $('tip-text').textContent=' '+step.text;
+  $('tip').hidden=false;
+  step.focus.forEach(i=>board.children[i].classList.add('focus'));
+  step.target.forEach(i=>board.children[i].classList.add('target'));
+}
+function reveal(){
+  if(S.solved)return;
+  clearTip();
+  const n=S.n,sol=new Set(S.cols.map((c,r)=>r*n+c));
+  const wrong=S.cells.findIndex((v,i)=>v===1&&!sol.has(i));
+  let target,val;
+  if(wrong>=0){target=wrong;val=0}
+  else{
+    const wrongDot=S.cells.findIndex((v,i)=>v===2&&sol.has(i));
+    if(wrongDot>=0){target=wrongDot;val=1}
+    else{const free=[...sol].filter(i=>S.cells[i]!==1);if(!free.length)return;target=free[Math.floor(Math.random()*free.length)];val=1}
+  }
+  S.hinted=true;
+  setCells([[target,val]]);
+  const d=board.children[target];d.classList.remove('hint');void d.offsetWidth;d.classList.add('hint');
+}
+let fxRun=0;
+const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function win(cats){
+  S.solved=true;
+  const key='catnap-best-'+S.n,best=store.get(key),t=Math.round(S.elapsed);
+  const record=!S.hinted&&(!best||t<best);
+  if(record)store.set(key,t);
+  $('win-text').textContent=`${S.n}×${S.n} in ${fmt(t)}${S.hinted?' (with hints)':''}${record?' — new best':''}`;
+  save();
+  const order=[...cats].sort((a,b)=>a-b);
+  order.forEach((i,k)=>{const d=board.children[i];d.classList.remove('party');void d.offsetWidth;d.style.animationDelay='';d.firstChild.style.animationDelay=`${k*90}ms`;d.classList.add('party')});
+  if(!calm())confetti(order);
+  setTimeout(()=>{if(S.solved){$('win').hidden=false;$('again').focus()}},calm()?0:order.length*90+700);
+}
+function confetti(cats){
+  const cv=$('fx'),ctx=cv.getContext('2d'),rect=board.getBoundingClientRect(),dpr=devicePixelRatio||1;
+  cv.width=rect.width*dpr;cv.height=rect.height*dpr;ctx.scale(dpr,dpr);
+  const css=getComputedStyle(document.documentElement),pick=['--accent','--cat','--r0','--r1','--r2','--r3','--r4','--good'].map(v=>css.getPropertyValue(v).trim());
+  const cell=rect.width/S.n,parts=[];
+  cats.forEach((i,k)=>{for(let p=0;p<18;p++){const a=Math.random()*Math.PI*2,s=2+Math.random()*5;
+    parts.push({x:(i%S.n+.5)*cell,y:(Math.floor(i/S.n)+.5)*cell,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,r:3+Math.random()*4,rot:Math.random()*6,vr:(Math.random()-.5)*.4,c:pick[(p+k)%pick.length],wait:k*5,shape:p%3})}});
+  let frame=0;
+  const run=++fxRun;
+  const tick=()=>{
+    ctx.clearRect(0,0,rect.width,rect.height);frame++;
+    if(run!==fxRun)return;
+    let alive=false;
+    for(const p of parts){
+      if(frame<p.wait){alive=true;continue}
+      p.vy+=.18;p.vx*=.99;p.x+=p.vx;p.y+=p.vy;p.rot+=p.vr;
+      if(p.y>rect.height+20)continue;alive=true;
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.c;ctx.globalAlpha=Math.max(0,1-frame/160);
+      if(p.shape===0)ctx.fillRect(-p.r,-p.r/2,p.r*2,p.r);
+      else if(p.shape===1){ctx.beginPath();ctx.arc(0,0,p.r*.7,0,7);ctx.fill()}
+      else{ctx.beginPath();ctx.arc(0,p.r*.4,p.r*.7,0,7);for(const [x,y] of [[-.8,-.5],[-.3,-.9],[.3,-.9],[.8,-.5]]){ctx.moveTo(x*p.r,y*p.r);ctx.arc(x*p.r,y*p.r,p.r*.3,0,7)}ctx.fill()}
+      ctx.restore();
+    }
+    if(alive&&frame<170)requestAnimationFrame(tick);else ctx.clearRect(0,0,rect.width,rect.height);
+  };
+  requestAnimationFrame(tick);
+}
+
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+let lastTick=performance.now();
+setInterval(()=>{
+  const now=performance.now();
+  if(S&&!S.solved&&!document.hidden)S.elapsed+=(now-lastTick)/1000;
+  lastTick=now;
+  if(S)$('time').textContent=fmt(S.elapsed);
+},250);
+let saveTimer;
+function save(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>store.set('catnap-game',S),200)}
+window.addEventListener('pagehide',()=>store.set('catnap-game',S));
+
+const HOLD=360;
+board.style.setProperty('--hold',HOLD+'ms');
+let press=null;
+const cellAt=(x,y)=>{const el=document.elementFromPoint(x,y);return el&&el.closest?el.closest('.cell'):null};
+const dotIfFree=i=>{if(board.children[i].dataset.v==='')press.changes.push([i,2])};
+function endHold(){if(!press)return;clearTimeout(press.timer);board.children[press.start].classList.remove('holding')}
+board.addEventListener('contextmenu',e=>e.preventDefault());
+board.addEventListener('pointerdown',e=>{
+  const d=e.target.closest('.cell');if(!d||S.solved||e.button>0)return;
+  e.preventDefault();
+  const start=+d.dataset.i;
+  press={start,dragged:false,fired:false,seen:new Set([start]),changes:[]};
+  if(S.cells[start]!==1)d.classList.add('holding');
+  press.timer=setTimeout(()=>{endHold();press.fired=true;setCells([[start,S.cells[start]===1?0:1]])},HOLD);
+});
+window.addEventListener('pointermove',e=>{
+  if(!press||press.fired)return;
+  const d=cellAt(e.clientX,e.clientY);if(!d||!board.contains(d))return;
+  const i=+d.dataset.i;if(press.seen.has(i))return;
+  if(!press.dragged){endHold();press.dragged=true;dotIfFree(press.start)}
+  press.seen.add(i);dotIfFree(i);
+  press.changes.forEach(([j])=>{const k=board.children[j];if(k.dataset.v===''){k.dataset.v='mark';k.innerHTML='<span class="mark"></span>'}});
+});
+window.addEventListener('pointerup',()=>{
+  if(!press)return;
+  endHold();
+  const p=press;press=null;
+  if(p.fired)return;
+  if(p.dragged)setCells(p.changes);
+  else setCells([[p.start,S.cells[p.start]===0?2:0]]);
+});
+window.addEventListener('pointercancel',()=>{endHold();press=null;paint()});
+
+board.addEventListener('keydown',e=>{
+  const d=e.target.closest('.cell');if(!d)return;
+  const n=S.n,i=+d.dataset.i,r=Math.floor(i/n),c=i%n;
+  const moves={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};
+  if(moves[e.key]){
+    e.preventDefault();
+    const rr=Math.min(n-1,Math.max(0,r+moves[e.key][0])),cc=Math.min(n-1,Math.max(0,c+moves[e.key][1]));
+    const next=board.children[rr*n+cc];d.tabIndex=-1;next.tabIndex=0;next.focus();
+  }else if(e.key==='Enter'||e.key==='c'){e.preventDefault();setCells([[i,S.cells[i]===1?0:1]])}
+  else if(e.key===' '||e.key==='x'||e.key==='.'){e.preventDefault();setCells([[i,S.cells[i]===0?2:0]])}
+  else if(e.key==='Backspace'||e.key==='Delete'){setCells([[i,0]])}
+});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();undo()}});
+
+document.querySelectorAll('.levels button').forEach(b=>b.addEventListener('click',()=>newGame(+b.dataset.n)));
+$('new').onclick=()=>newGame(S.n);
+$('again').onclick=()=>newGame(S.n);
+$('undo').onclick=undo;
+$('hint').onclick=hint;
+$('reveal').onclick=reveal;
+$('tip-close').onclick=clearTip;
+$('clear').onclick=()=>setCells(S.cells.map((v,i)=>[i,0]));
+$('theme').onclick=()=>{
+  const root=document.documentElement;
+  const dark=root.dataset.theme?root.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme=dark?'light':'dark';
+};
+
+function valid(g){return g&&[6,8,9].includes(g.n)&&Array.isArray(g.cells)&&g.cells.length===g.n*g.n&&Array.isArray(g.rooms)&&Array.isArray(g.cols)}
+function boot(data){
+  const saved=valid(data&&data.game)?data.game:store.get('catnap-game');
+  if(valid(saved)){S={history:[],elapsed:0,solved:false,hinted:false,...saved};start();if(S.solved)$('win').hidden=false,$('win-text').textContent='Solved. Start the next one?'}
+  else newGame(6);
+}
+window.claude?.hot?.snapshot?.(()=>({game:S}));
+window.claude?.hot?.ready?window.claude.hot.ready(boot):boot(window.claude?.hot?.data??{});
+</script>
+</body>
+</html>
