@@ -88,7 +88,7 @@ h1 svg{width:44px;height:44px}
 .rules ul{margin:0;padding-left:18px;display:grid;gap:3px}
 .rules strong{color:var(--ink)}
 .theme{flex-shrink:0;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;width:36px;height:36px;cursor:pointer;font-size:1rem}
-.toolbar{display:flex;gap:8px;align-items:center}
+.pickers{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between}
 .win{position:absolute;inset:0;display:grid;place-items:center;background:color-mix(in srgb,var(--bg) 78%,transparent);border-radius:14px;backdrop-filter:blur(2px)}
 .win .card{background:var(--panel);border:2px solid var(--ink);border-radius:18px;padding:20px 24px;text-align:center;display:grid;gap:6px;max-width:85%}
 .win h3{font:800 1.7rem var(--display);margin:0}
@@ -105,17 +105,24 @@ h1 svg{width:44px;height:44px}
 <div class="wrap">
   <header>
     <h1><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#cat"/></svg>Cat Nap</h1>
-    <div class="toolbar">
-      <div class="levels" role="group" aria-label="Difficulty">
-        <button data-level="kitten">Kitten</button>
-        <button data-level="easy">Easy</button>
-        <button data-level="medium">Medium</button>
-        <button data-level="hard">Hard</button>
-        <button data-level="expert">Expert</button>
-      </div>
-      <button class="theme" id="theme" aria-label="Switch light or dark theme">◐</button>
-    </div>
+    <button class="theme" id="theme" aria-label="Switch light or dark theme">◐</button>
   </header>
+  <div class="pickers">
+    <div class="levels" role="group" aria-label="Map size">
+      <button data-n="5">5×5</button>
+      <button data-n="6">6×6</button>
+      <button data-n="8">8×8</button>
+      <button data-n="12">12×12</button>
+      <button data-n="20">20×20</button>
+    </div>
+    <div class="levels" role="group" aria-label="Difficulty">
+      <button data-level="kitten">Kitten</button>
+      <button data-level="easy">Easy</button>
+      <button data-level="medium">Medium</button>
+      <button data-level="hard">Hard</button>
+      <button data-level="expert">Expert</button>
+    </div>
+  </div>
   <div class="status">
     <span>Cats <b id="count">0 / 6</b></span>
     <span id="best">Best —</span>
@@ -130,6 +137,9 @@ h1 svg{width:44px;height:44px}
         <p id="win-text"></p>
         <button id="again">Next puzzle</button>
       </div>
+    </div>
+    <div class="win" id="busy" hidden>
+      <div class="card"><p>Finding a puzzle…</p></div>
     </div>
   </div>
   <div class="tip" id="tip" hidden role="status">
@@ -151,7 +161,7 @@ h1 svg{width:44px;height:44px}
       <li><strong>Hold</strong> a cell to put a cat there. Each cat dots the cells it blocks.</li>
       <li><strong>Tap</strong> a cell to dot it (no cat here), or to clear it. Drag across cells to dot many at once.</li>
       <li>Every puzzle has exactly one solution, so you never need to guess.</li>
-      <li>Each level is bigger and needs harder logic. <strong>Kitten</strong> needs only the last free cell of a row, column or room. <strong>Easy</strong> adds cells a cat would block. <strong>Medium</strong> needs pairs of rooms that share two rows or columns. <strong>Hard</strong> and <strong>Expert</strong> need larger groups and “what if” chains.</li>
+      <li>Pick any map size and any level. The level sets the logic you need: <strong>Kitten</strong> needs only the last free cell of a row, column or room. <strong>Easy</strong> adds cells a cat would block. <strong>Medium</strong> needs pairs of rooms that share two rows or columns. <strong>Hard</strong> and <strong>Expert</strong> need larger groups and “what if” chains. Very small maps can't always be as hard as Expert.</li>
       <li><strong>Hint</strong> explains the next logical step. <strong>Reveal</strong> shows one cat. A time with either one does not count as a best.</li>
     </ul>
   </section>
@@ -176,7 +186,7 @@ h1 svg{width:44px;height:44px}
   </defs>
 </svg>
 
-<script>
+<script id="engine">
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
 
@@ -186,28 +196,76 @@ function makeSolution(n){
   go(0);return cols;
 }
 function neighbours(n,i){const r=Math.floor(i/n),c=i%n,out=[];for(const [dr,dc] of DIRS){const rr=r+dr,cc=c+dc;if(rr>=0&&cc>=0&&rr<n&&cc<n)out.push(rr*n+cc)}return out}
-function growRooms(n,cols){
-  const g=new Array(n*n).fill(-1);
-  cols.forEach((c,r)=>{g[r*n+c]=r});
-  for(let left=n*n-n;left>0;left--){
-    const cand=[];
-    for(let i=0;i<n*n;i++)if(g[i]===-1)for(const j of neighbours(n,i))if(g[j]!==-1)cand.push([i,g[j]]);
-    const [i,v]=cand[Math.floor(Math.random()*cand.length)];g[i]=v;
+const blocks=(n,cat,i)=>{const r=Math.floor(cat/n),c=cat%n,ri=Math.floor(i/n),ci=i%n;return ri===r||ci===c||(Math.abs(ri-r)<2&&Math.abs(ci-c)<2)};
+function component(n,set,from){
+  const seen=new Set([from]),stack=[from];
+  while(stack.length){const i=stack.pop();for(const j of neighbours(n,i))if(set.has(j)&&!seen.has(j)){seen.add(j);stack.push(j)}}
+  return seen;
+}
+function takeEdge(n,ctx,i){
+  const {rest,unplaced,covered}=ctx,nearCat=j=>neighbours(n,j).some(c=>unplaced.has(c));
+  rest.delete(i);
+  const parts=[];
+  for(const j of neighbours(n,i))if(rest.has(j)&&!parts.some(p=>p.has(j)))parts.push(component(n,rest,j));
+  const pockets=parts.filter(p=>[...p].every(j=>covered[j]&&!nearCat(j)));
+  const lonely=neighbours(n,i).some(c=>unplaced.has(c)&&!neighbours(n,c).some(j=>rest.has(j)));
+  if(parts.length-pockets.length>1||(parts.length&&pockets.length===parts.length&&unplaced.size)||lonely){rest.add(i);return null}
+  const taken=[i,...(parts.length>1?pockets:[]).flatMap(p=>[...p])];
+  taken.forEach(j=>rest.delete(j));
+  return taken;
+}
+function compactPick(edge){
+  const hits=new Map();edge.forEach(j=>hits.set(j,(hits.get(j)||0)+1));
+  const weighted=[...hits].flatMap(([j,k])=>new Array(k*k).fill(j));
+  return weighted[Math.floor(Math.random()*weighted.length)];
+}
+function growRoom(n,ctx,cat){
+  const {g,rest,covered}=ctx,room=[cat];
+  const size=Math.round(rest.size/(ctx.unplaced.size+1)*(0.5+Math.random()));
+  for(let tries=0;room.length<size&&tries<6*size;tries++){
+    const edge=room.flatMap(i=>neighbours(n,i)).filter(j=>rest.has(j)&&covered[j]);
+    if(!edge.length)return;
+    const taken=takeEdge(n,ctx,compactPick(edge));
+    if(taken)taken.forEach(k=>{g[k]=g[cat];room.push(k)});
   }
+}
+function growRooms(n,cols){
+  const g=new Array(n*n).fill(-1),cats=cols.map((c,r)=>r*n+c),order=new Array(n);
+  cats.forEach((cat,r)=>{g[cat]=r});
+  const ctx={g,rest:new Set(g.flatMap((v,i)=>v===-1?[i]:[])),covered:new Array(n*n).fill(false),unplaced:new Set(cats)};
+  shuffle([...cats]).forEach((cat,k)=>{
+    order[g[cat]]=k;
+    ctx.unplaced.delete(cat);
+    if(ctx.unplaced.size){growRoom(n,ctx,cat);for(let i=0;i<n*n;i++)if(blocks(n,cat,i))ctx.covered[i]=true}
+    else ctx.rest.forEach(i=>{g[i]=g[cat]});
+  });
+  balance(n,g,cats,order);
   return g;
 }
-function findOther(n,g,cols){
-  let found=null;
-  const go=(r,colMask,roomMask,prev,acc)=>{
-    if(r===n){if(acc.some((c,i)=>c!==cols[i])){found=acc.slice();return true}return false}
-    for(let c=0;c<n;c++){
-      if(colMask>>c&1||(r>0&&Math.abs(prev-c)<2))continue;
-      const room=g[r*n+c];if(roomMask>>room&1)continue;
-      acc[r]=c;if(go(r+1,colMask|1<<c,roomMask|1<<room,c,acc))return true;
-    }
-    return false;
+function detach(n,g,cat,x){
+  const room=g[cat],kept=new Set([cat]),stack=[cat];
+  while(stack.length){const i=stack.pop();for(const j of neighbours(n,i))if(j!==x&&g[j]===room&&!kept.has(j)){kept.add(j);stack.push(j)}}
+  return g.flatMap((v,i)=>v===room&&!kept.has(i)?[i]:[]);
+}
+function balance(n,g,cats,order){
+  const since=g.map((_,i)=>Math.min(...cats.filter(c=>c!==i&&blocks(n,c,i)).map(c=>order[g[c]])));
+  const sizes=roomSizes(n,g),catOf=new Map(cats.map(c=>[g[c],c]));
+  const shift=(room,x)=>{
+    const to=shuffle(neighbours(n,x).map(j=>g[j]).filter(q=>q!==room&&sizes[q]<sizes[room]-1));
+    if(!to.length)return false;
+    const piece=detach(n,g,catOf.get(room),x);
+    const q=to.find(t=>sizes[t]+piece.length<sizes[room]&&piece.every(i=>order[t]>since[i]));
+    if(q===undefined)return false;
+    piece.forEach(i=>{g[i]=q});sizes[room]-=piece.length;sizes[q]+=piece.length;
+    return true;
   };
-  go(0,0,0,-9,[]);return found;
+  for(let moved=true;moved;){
+    moved=false;
+    for(const room of [...sizes.keys()].sort((a,b)=>sizes[b]-sizes[a])){
+      const cells=shuffle(g.flatMap((v,i)=>v===room&&i!==catOf.get(room)?[i]:[]));
+      if(cells.some(x=>shift(room,x))){moved=true;break}
+    }
+  }
 }
 function stillConnected(n,g,room,removed){
   const cells=[];for(let i=0;i<n*n;i++)if(g[i]===room&&i!==removed)cells.push(i);
@@ -216,138 +274,81 @@ function stillConnected(n,g,room,removed){
   while(stack.length){const i=stack.pop();for(const j of neighbours(n,i))if(j!==removed&&g[j]===room&&!seen.has(j)){seen.add(j);stack.push(j)}}
   return seen.size===cells.length;
 }
-function repair(n,g,cols,alt){
-  const catCells=new Set(cols.map((c,r)=>r*n+c));
-  for(const x of shuffle(alt.map((c,r)=>r*n+c).filter(i=>!catCells.has(i)))){
-    const others=shuffle([...new Set(neighbours(n,x).map(j=>g[j]))].filter(v=>v!==g[x]));
-    if(!others.length||!stillConnected(n,g,g[x],x))continue;
-    g[x]=others[0];return true;
-  }
-  return false;
-}
-function generate(n){
+function solve(g,maxTier){
+  let tier=0;
   for(;;){
-    const cols=makeSolution(n),g=growRooms(n,cols);
-    for(let step=0;step<60;step++){
-      const alt=findOther(n,g,cols);
-      if(!alt)return {n,cols,rooms:g};
-      if(!repair(n,g,cols,alt))break;
-    }
+    const st=boardState(g,true);
+    if(!st.open.length)return {done:true,tier};
+    const step=sweep(st,maxTier);
+    if(!step)return {done:false,tier,st};
+    tier=Math.max(tier,step.tier);
+    step.target.forEach(i=>{g.cells[i]=step.cat?1:2});
   }
+}
+const fresh_=g=>({n:g.n,rooms:g.rooms,cells:new Array(g.n*g.n).fill(0)});
+function roomSizes(n,rooms){const s=new Array(n).fill(0);rooms.forEach(r=>s[r]++);return s}
+function tryMove(g,x,room,maxTier){
+  const from=g.rooms[x];
+  if(!stillConnected(g.n,g.rooms,from,x))return null;
+  g.rooms[x]=room;
+  const r=solve(fresh_(g),maxTier);
+  if(r.done)return r.tier;
+  g.rooms[x]=from;return null;
+}
+function reshape(g,cats,{min,max},deadline){
+  const n=g.n,limit=2*n;
+  let tier=solve(fresh_(g),max).tier,stuck=0;
+  while(performance.now()<deadline){
+    const sizes=roomSizes(n,g.rooms),balanced=Math.max(...sizes)<=limit||stuck>20*n;
+    if(balanced&&tier>=min)break;
+    stuck++;
+    const x=Math.floor(Math.random()*n*n);
+    if(cats.has(x))continue;
+    const from=g.rooms[x],to=neighbours(n,x).map(j=>g.rooms[j]).filter(r=>r!==from&&(balanced?sizes[r]<limit:sizes[r]<sizes[from]-1));
+    if(!to.length)continue;
+    const t=tryMove(g,x,to[Math.floor(Math.random()*to.length)],max);
+    if(t===null)continue;
+    if(balanced&&t<tier){g.rooms[x]=from;continue}
+    tier=t;stuck=0;
+  }
+  return tier;
+}
+function generate(n,range,deadline){
+  const cols=makeSolution(n),cats=new Set(cols.map((c,r)=>r*n+c));
+  const g={n,rooms:growRooms(n,cols),cells:[]};
+  const tier=reshape(g,cats,range,deadline);
+  return {n,cols,rooms:g.rooms,tier};
 }
 
 const LEVELS={
-  kitten:{n:5,min:1,max:1},
-  easy:{n:6,min:1,max:2},
-  medium:{n:7,min:3,max:3},
-  hard:{n:8,min:3,max:4},
-  expert:{n:9,min:4,max:5},
+  kitten:{min:1,max:1},
+  easy:{min:1,max:2},
+  medium:{min:3,max:3},
+  hard:{min:3,max:4},
+  expert:{min:4,max:5},
 };
-const GENERATE_BUDGET_MS=2500;
-function generateLevel(level){
-  const {n,min,max}=LEVELS[level],deadline=performance.now()+GENERATE_BUDGET_MS;
-  let fallback=null;
-  for(;;){
-    const p=generate(n),tier=grade(p);
-    if(tier>=min&&tier<=max)return p;
-    if(tier<=max&&(!fallback||tier>fallback.tier))fallback={p,tier};
-    if(fallback&&performance.now()>deadline)return fallback.p;
+const SIZES=[5,6,8,12,20];
+const GENERATE_BUDGET_MS=3000,ATTEMPTS=3;
+function generateLevel(level,n){
+  const range=LEVELS[level],end=performance.now()+GENERATE_BUDGET_MS;
+  let best=null;
+  for(let k=ATTEMPTS;k>0;k--){
+    const now=performance.now(),p=generate(n,range,now+(end-now)/k);
+    if(p.tier>=range.min)return p;
+    if(!best||p.tier>best.tier)best=p;
   }
-}
-
-const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch{return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
-const $=id=>document.getElementById(id);
-const board=$('board');
-let S;
-
-function newGame(level){
-  const p=generateLevel(level);
-  S={...p,level,cells:new Array(p.n*p.n).fill(0),history:[],elapsed:0,solved:false,hinted:false};
-  start();
-}
-function start(){
-  board.style.gridTemplateColumns=board.style.gridTemplateRows=`repeat(${S.n},minmax(0,1fr))`;
-  board.innerHTML='';
-  const n=S.n;
-  for(let i=0;i<n*n;i++){
-    const d=document.createElement('div'),r=Math.floor(i/n),c=i%n,g=S.rooms;
-    d.className='cell';d.tabIndex=i===0?0:-1;d.dataset.i=i;d.setAttribute('role','gridcell');
-    d.style.background=`var(--r${g[i]})`;
-    if(r>0&&g[i-n]!==g[i])d.classList.add('t');
-    if(r<n-1&&g[i+n]!==g[i])d.classList.add('b');
-    if(c>0&&g[i-1]!==g[i])d.classList.add('l');
-    if(c<n-1&&g[i+1]!==g[i])d.classList.add('rt');
-    board.appendChild(d);
-  }
-  document.querySelectorAll('.levels button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.level===S.level)));
-  $('win').hidden=true;
-  $('tip').hidden=true;
-  fxRun++;
-  const cv=$('fx');cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
-  lastTick=performance.now();
-  paint();
-  save();
+  return best;
 }
 
 const touches=(g,i,j)=>{const n=g.n,ri=Math.floor(i/n),ci=i%n,rj=Math.floor(j/n),cj=j%n;return ri===rj||ci===cj||g.rooms[i]===g.rooms[j]||(Math.abs(ri-rj)<2&&Math.abs(ci-cj)<2)};
-function analyse(){
-  const n=S.n,bad=new Set(),blocked=new Set(),cats=[];
-  S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
-  for(let a=0;a<cats.length;a++)for(let b=a+1;b<cats.length;b++)if(touches(S,cats[a],cats[b])){bad.add(cats[a]);bad.add(cats[b])}
-  for(const c of cats)for(let i=0;i<n*n;i++)if(i!==c&&touches(S,c,i))blocked.add(i);
-  return {bad,blocked,cats};
-}
-const dist=(n,i,j)=>Math.max(Math.abs(Math.floor(i/n)-Math.floor(j/n)),Math.abs(i%n-j%n));
-const CAT_SVG='<svg viewBox="0 0 100 100"><use href="#cat"/></svg>';
-let shownCount=-1;
-function paint(){
-  const {bad,blocked,cats}=analyse(),kids=board.children,from=S.lastCat;
-  S.cells.forEach((v,i)=>{
-    const d=kids[i],want=v===1?'cat':v===2?'mark':blocked.has(i)?'auto':'';
-    if(d.dataset.v!==want){
-      d.dataset.v=want;
-      d.classList.toggle('cat',v===1);
-      d.innerHTML=want==='cat'?CAT_SVG:want==='mark'?'<span class="mark"></span>':want==='auto'?'<span class="mark auto"></span>':'';
-      if(want==='auto'&&from!=null){const m=d.firstChild;m.classList.add('ripple');m.style.animationDelay=`${dist(S.n,from,i)*55}ms`}
-    }
-    d.classList.toggle('bad',bad.has(i));
-    const r=Math.floor(i/S.n)+1,c=i%S.n+1;
-    d.setAttribute('aria-label',`Row ${r}, column ${c}, ${want==='cat'?'cat':want?'dot':'empty'}${bad.has(i)?', clashes':''}`);
-  });
-  S.lastCat=null;
-  const count=$('count');
-  count.textContent=`${cats.length} / ${S.n}`;
-  if(shownCount>=0&&cats.length!==shownCount){count.classList.remove('bump');void count.offsetWidth;count.classList.add('bump')}
-  shownCount=cats.length;
-  const best=store.get('catnap-best-'+S.level);
-  $('best').textContent=best?`Best ${fmt(best)}`:'Best —';
-  if(from!=null&&bad.has(from)){board.classList.remove('shake');void board.offsetWidth;board.classList.add('shake')}
-  if(!S.solved&&cats.length===S.n&&bad.size===0)win(cats);
-}
-function setCells(changes){
-  if(S.solved)return;
-  const rec=changes.filter(([i,v])=>S.cells[i]!==v).map(([i,v])=>[i,S.cells[i],v]);
-  if(!rec.length)return;
-  rec.forEach(([i,,v])=>{S.cells[i]=v});
-  clearTip();
-  const placed=rec.find(([,,v])=>v===1);
-  if(placed){S.lastCat=placed[0];try{navigator.vibrate?.(15)}catch{}}
-  S.history.push(rec);
-  paint();save();
-}
-function undo(){
-  const rec=S.history.pop();if(!rec||S.solved)return;
-  rec.forEach(([i,old])=>{S.cells[i]=old});paint();save();
-}
 const ROOM_NAMES=['pink','blue','green','yellow','purple','teal','orange','olive','indigo'];
 const cap=s=>s[0].toUpperCase()+s.slice(1);
 const listNames=a=>a.length<3?a.join(' and '):a.slice(0,-1).join(', ')+' and '+a.at(-1);
-const where=i=>`row ${Math.floor(i/S.n)+1}, column ${i%S.n+1}`;
 function unitList(g){
   const n=g.n,seq=[...Array(n).keys()],u=[];
   seq.forEach(r=>u.push({kind:'row',id:r,name:`row ${r+1}`,cells:seq.map(c=>r*n+c)}));
   seq.forEach(c=>u.push({kind:'col',id:c,name:`column ${c+1}`,cells:seq.map(r=>r*n+c)}));
-  seq.forEach(k=>u.push({kind:'room',id:k,name:`the ${ROOM_NAMES[k]} room`,cells:g.rooms.flatMap((v,i)=>v===k?[i]:[])}));
+  seq.forEach(k=>u.push({kind:'room',id:k,name:g.names?g.names[k]:`room ${k+1}`,cells:g.rooms.flatMap((v,i)=>v===k?[i]:[])}));
   return u;
 }
 function boardState(g,useDots){
@@ -441,21 +442,155 @@ const TECHNIQUES=[
   [5,st=>stepTry(st,Infinity)],
 ];
 const UNSOLVABLE=6;
-function simplestStep(st){
-  for(const [tier,find] of TECHNIQUES){const step=find(st);if(step)return {...step,tier}}
+function allSingles({open}){
+  if(open.some(u=>!u.free.length))return;
+  const target=[...new Set(open.filter(u=>u.free.length===1).map(u=>u.free[0]))];
+  if(target.length)return {target,cat:true};
 }
-function grade(p){
-  const g={n:p.n,rooms:p.rooms,cells:new Array(p.n*p.n).fill(0)};
-  let tier=0;
-  for(let placed=0;placed<p.n;){
-    const step=simplestStep(boardState(g,true));
-    if(!step||!step.target.length)return UNSOLVABLE;
-    tier=Math.max(tier,step.tier);
-    if(step.cat){g.cells[step.target[0]]=1;placed++}
-    else step.target.forEach(i=>{g.cells[i]=2});
+function allBlocking({g,open,cand}){
+  const target=[...cand].filter(x=>open.some(u=>!u.cells.includes(x)&&u.free.every(i=>touches(g,x,i))));
+  if(target.length)return {target};
+}
+function allTries({g,open,cand},maxForced){
+  const target=[...cand].filter(x=>{const r=tryCat(g,x,cand,open);return r&&r.forced<=maxForced});
+  if(target.length)return {target};
+}
+const SWEEPS=[
+  [1,allSingles],
+  [2,allBlocking],
+  [3,st=>stepSets(st,2)],
+  [4,st=>stepSets(st,3)||stepSets(st,4)||allTries(st,1)],
+  [5,st=>allTries(st,Infinity)],
+];
+function sweep(st,maxTier){
+  for(const [tier,find] of SWEEPS){if(tier>maxTier)break;const step=find(st);if(step)return {...step,tier}}
+}
+function simplestStep(st,maxTier=UNSOLVABLE){
+  for(const [tier,find] of TECHNIQUES){if(tier>maxTier)break;const step=find(st);if(step)return {...step,tier}}
+}
+function grade(p){const r=solve({n:p.n,rooms:p.rooms,cells:new Array(p.n*p.n).fill(0)},UNSOLVABLE);return r.done?r.tier:UNSOLVABLE}
+function roomLabels(n,rooms){
+  const near=[...Array(n)].map(()=>new Set());
+  rooms.forEach((r,i)=>neighbours(n,i).forEach(j=>{if(rooms[j]!==r)near[r].add(rooms[j])}));
+  const color=new Array(n).fill(-1),used=new Array(ROOM_NAMES.length).fill(0);
+  for(const r of [...near.keys()].sort((a,b)=>near[b].size-near[a].size)){
+    const free=[...used.keys()].filter(c=>![...near[r]].some(q=>color[q]===c));
+    const c=(free.length?free:[...used.keys()]).sort((a,b)=>used[a]-used[b])[0];
+    color[r]=c;used[c]++;
   }
-  return tier;
+  const first=r=>rooms.indexOf(r),names=color.map((c,r)=>{
+    if(used[c]===1)return `the ${ROOM_NAMES[c]} room`;
+    const i=first(r);return `the ${ROOM_NAMES[c]} room at row ${Math.floor(i/n)+1}, column ${i%n+1}`;
+  });
+  return {colors:color,names};
 }
+</script>
+<script>
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch{return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const $=id=>document.getElementById(id);
+const board=$('board');
+let S;
+
+const ENGINE=$('engine').textContent+'\nonmessage=e=>postMessage(generateLevel(e.data.level,e.data.n))';
+let worker=null,pick={level:'easy',n:6};
+function startWorker(){
+  worker?.terminate();
+  try{worker=new Worker(URL.createObjectURL(new Blob([ENGINE],{type:'text/javascript'})))}catch{worker=null}
+}
+function showPick(){
+  document.querySelectorAll('[data-level]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.level===pick.level)));
+  document.querySelectorAll('[data-n]').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===pick.n)));
+}
+function newGame(level,n){
+  pick={level,n};showPick();
+  $('busy').hidden=false;
+  const ready=p=>{
+    if(pick.level!==level||pick.n!==n)return;
+    $('busy').hidden=true;
+    S={...p,level,cells:new Array(p.n*p.n).fill(0),history:[],elapsed:0,solved:false,hinted:false};
+    start();
+  };
+  startWorker();
+  if(!worker){setTimeout(()=>ready(generateLevel(level,n)),20);return}
+  worker.onmessage=e=>ready(e.data);
+  worker.onerror=()=>{worker=null;ready(generateLevel(level,n))};
+  worker.postMessage({level,n});
+}
+function start(){
+  board.style.gridTemplateColumns=board.style.gridTemplateRows=`repeat(${S.n},minmax(0,1fr))`;
+  board.innerHTML='';
+  const n=S.n;
+  Object.assign(S,roomLabels(n,S.rooms));
+  pick={level:S.level,n};showPick();
+  for(let i=0;i<n*n;i++){
+    const d=document.createElement('div'),r=Math.floor(i/n),c=i%n,g=S.rooms;
+    d.className='cell';d.tabIndex=i===0?0:-1;d.dataset.i=i;d.setAttribute('role','gridcell');
+    d.style.background=`var(--r${S.colors[g[i]]})`;
+    if(r>0&&g[i-n]!==g[i])d.classList.add('t');
+    if(r<n-1&&g[i+n]!==g[i])d.classList.add('b');
+    if(c>0&&g[i-1]!==g[i])d.classList.add('l');
+    if(c<n-1&&g[i+1]!==g[i])d.classList.add('rt');
+    board.appendChild(d);
+  }
+  $('win').hidden=true;
+  $('tip').hidden=true;
+  fxRun++;
+  const cv=$('fx');cv.getContext('2d').clearRect(0,0,cv.width,cv.height);
+  lastTick=performance.now();
+  paint();
+  save();
+}
+
+function analyse(){
+  const n=S.n,bad=new Set(),blocked=new Set(),cats=[];
+  S.cells.forEach((v,i)=>{if(v===1)cats.push(i)});
+  for(let a=0;a<cats.length;a++)for(let b=a+1;b<cats.length;b++)if(touches(S,cats[a],cats[b])){bad.add(cats[a]);bad.add(cats[b])}
+  for(const c of cats)for(let i=0;i<n*n;i++)if(i!==c&&touches(S,c,i))blocked.add(i);
+  return {bad,blocked,cats};
+}
+const dist=(n,i,j)=>Math.max(Math.abs(Math.floor(i/n)-Math.floor(j/n)),Math.abs(i%n-j%n));
+const CAT_SVG='<svg viewBox="0 0 100 100"><use href="#cat"/></svg>';
+let shownCount=-1;
+function paint(){
+  const {bad,blocked,cats}=analyse(),kids=board.children,from=S.lastCat;
+  S.cells.forEach((v,i)=>{
+    const d=kids[i],want=v===1?'cat':v===2?'mark':blocked.has(i)?'auto':'';
+    if(d.dataset.v!==want){
+      d.dataset.v=want;
+      d.classList.toggle('cat',v===1);
+      d.innerHTML=want==='cat'?CAT_SVG:want==='mark'?'<span class="mark"></span>':want==='auto'?'<span class="mark auto"></span>':'';
+      if(want==='auto'&&from!=null){const m=d.firstChild;m.classList.add('ripple');m.style.animationDelay=`${dist(S.n,from,i)*55}ms`}
+    }
+    d.classList.toggle('bad',bad.has(i));
+    const r=Math.floor(i/S.n)+1,c=i%S.n+1;
+    d.setAttribute('aria-label',`Row ${r}, column ${c}, ${want==='cat'?'cat':want?'dot':'empty'}${bad.has(i)?', clashes':''}`);
+  });
+  S.lastCat=null;
+  const count=$('count');
+  count.textContent=`${cats.length} / ${S.n}`;
+  if(shownCount>=0&&cats.length!==shownCount){count.classList.remove('bump');void count.offsetWidth;count.classList.add('bump')}
+  shownCount=cats.length;
+  const best=store.get(`catnap-best-${S.level}-${S.n}`);
+  $('best').textContent=best?`Best ${fmt(best)}`:'Best —';
+  if(from!=null&&bad.has(from)){board.classList.remove('shake');void board.offsetWidth;board.classList.add('shake')}
+  if(!S.solved&&cats.length===S.n&&bad.size===0)win(cats);
+}
+function setCells(changes){
+  if(S.solved)return;
+  const rec=changes.filter(([i,v])=>S.cells[i]!==v).map(([i,v])=>[i,S.cells[i],v]);
+  if(!rec.length)return;
+  rec.forEach(([i,,v])=>{S.cells[i]=v});
+  clearTip();
+  const placed=rec.find(([,,v])=>v===1);
+  if(placed){S.lastCat=placed[0];try{navigator.vibrate?.(15)}catch{}}
+  S.history.push(rec);
+  paint();save();
+}
+function undo(){
+  const rec=S.history.pop();if(!rec||S.solved)return;
+  rec.forEach(([i,old])=>{S.cells[i]=old});paint();save();
+}
+const where=i=>`row ${Math.floor(i/S.n)+1}, column ${i%S.n+1}`;
 function nextStep(){
   const {bad,cats}=analyse();
   if(bad.size)return {text:'These cats break a rule: they share a row, column or room, or they touch. Remove one of them.',focus:[...bad],target:[]};
@@ -502,7 +637,7 @@ let fxRun=0;
 const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 function win(cats){
   S.solved=true;
-  const key='catnap-best-'+S.level,best=store.get(key),t=Math.round(S.elapsed);
+  const key=`catnap-best-${S.level}-${S.n}`,best=store.get(key),t=Math.round(S.elapsed);
   const record=!S.hinted&&(!best||t<best);
   if(record)store.set(key,t);
   $('win-text').textContent=`${cap(S.level)}, ${S.n}×${S.n}, in ${fmt(t)}${S.hinted?' (with hints)':''}${record?' — new best':''}`;
@@ -599,9 +734,10 @@ board.addEventListener('keydown',e=>{
 });
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='z'){e.preventDefault();undo()}});
 
-document.querySelectorAll('.levels button').forEach(b=>b.addEventListener('click',()=>newGame(b.dataset.level)));
-$('new').onclick=()=>newGame(S.level);
-$('again').onclick=()=>newGame(S.level);
+document.querySelectorAll('[data-level]').forEach(b=>b.addEventListener('click',()=>newGame(b.dataset.level,pick.n)));
+document.querySelectorAll('[data-n]').forEach(b=>b.addEventListener('click',()=>newGame(pick.level,+b.dataset.n)));
+$('new').onclick=()=>newGame(pick.level,pick.n);
+$('again').onclick=()=>newGame(pick.level,pick.n);
 $('undo').onclick=undo;
 $('hint').onclick=hint;
 $('reveal').onclick=reveal;
@@ -613,11 +749,11 @@ $('theme').onclick=()=>{
   root.dataset.theme=dark?'light':'dark';
 };
 
-function valid(g){return g&&Object.hasOwn(LEVELS,g.level)&&LEVELS[g.level].n===g.n&&Array.isArray(g.cells)&&g.cells.length===g.n*g.n&&Array.isArray(g.rooms)&&Array.isArray(g.cols)}
+function valid(g){return g&&Object.hasOwn(LEVELS,g.level)&&SIZES.includes(g.n)&&Array.isArray(g.cells)&&g.cells.length===g.n*g.n&&Array.isArray(g.rooms)&&Array.isArray(g.cols)}
 function boot(data){
   const saved=valid(data&&data.game)?data.game:store.get('catnap-game');
   if(valid(saved)){S={history:[],elapsed:0,solved:false,hinted:false,...saved};start();if(S.solved)$('win').hidden=false,$('win-text').textContent='Solved. Start the next one?'}
-  else newGame('kitten');
+  else newGame(pick.level,pick.n);
 }
 window.claude?.hot?.snapshot?.(()=>({game:S}));
 window.claude?.hot?.ready?window.claude.hot.ready(boot):boot(window.claude?.hot?.data??{});
